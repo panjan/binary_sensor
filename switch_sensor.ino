@@ -1,15 +1,20 @@
 #include <ESP8266WiFi.h>
 #include <ArduinoOTA.h>
+#include <PubSubClient.h>
 #import "secret.h"
 #define SWITCH_PIN        4  // GPIO4
 #define BUTTON_PIN        5  // GPIO5
 #define BUTTON_PRESSED    0
+#define SWITCH_CLOSED     0
+
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  connectToWiFi();
+  connectWiFi();
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   int button_state = digitalRead(BUTTON_PIN);
@@ -20,7 +25,12 @@ void setup() {
   } else {
     pinMode(SWITCH_PIN, INPUT_PULLUP);
     int switch_state = digitalRead(SWITCH_PIN);
-    Serial.println("Switch state: " + String(switch_state)); // 0 close, 1 open
+    Serial.println("Switch state: " + String(switch_state));
+    if(switch_state == SWITCH_CLOSED) {
+      publishState("ON");
+    } else {
+      publishState("OFF");
+    }
   }
 
   ESP.deepSleep(1000000 * 1);
@@ -79,7 +89,7 @@ void handleOTA() {
   }
 }
 
-void connectToWiFi() {
+void connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_NAME, WIFI_PASSWORD);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
@@ -87,6 +97,32 @@ void connectToWiFi() {
     delay(5000);
     ESP.restart();
   }
+}
+
+void connectMQTT() {
+  while (!client.connected()) {
+      Serial.print("Attempting MQTT connection...");
+      if (client.connect("binary_sensor", MQTT_NAME, MQTT_PASSWORD)) {
+        Serial.println("connected");
+      } else {
+        Serial.print("failed, rc=");
+        Serial.print(client.state());
+        Serial.println(" try again in 5 seconds");
+        delay(5000);
+      }
+    }
+}
+
+void publishState(char* state) {
+  client.setServer(MQTT_SERVER, MQTT_PORT);
+  if (!client.connected()) {
+    connectMQTT();
+  }
+  client.loop();
+  Serial.println("publishing state:" + String(state));
+  client.publish(TOPIC, state);
+  Serial.println("state published");
+  delay(5000);
 }
 
 void loop() {}
